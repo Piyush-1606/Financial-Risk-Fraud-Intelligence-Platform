@@ -14,6 +14,16 @@ import os
 
 from src.db import get_mssql_engine
 
+from src.portfolio_optimization import (
+    load_stock_data,
+    prepare_returns,
+    optimize_max_sharpe,
+    optimize_min_variance,
+    portfolio_performance,
+    efficient_frontier,
+    monte_carlo_portfolio
+)
+
 logo_path = os.path.join(ROOT_DIR, "assets", "logo.png")
 logo = Image.open(logo_path)
 
@@ -125,12 +135,13 @@ st.markdown(
 
 st.divider()
 
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "Overview",
     "Fraud Intelligence",
     "Market Intelligence",
     "Macro Risk",
-    "Model Predictions"
+    "Model Predictions",
+    "Portfolio Optimization"
 ])
 
 with tab1:
@@ -338,3 +349,197 @@ with tab5:
                 title="Prediction Score Spread"
             )
             st.plotly_chart(fig, use_container_width=True)
+
+with tab6:
+
+    st.subheader("Portfolio Optimization & Quant Analytics")
+
+    stock_df = load_table("SELECT * FROM stock_prices")
+
+    if stock_df.empty:
+        st.warning("No stock data found.")
+        st.stop()
+
+    stock_df["trade_date"] = pd.to_datetime(
+        stock_df["trade_date"],
+        errors="coerce"
+    )
+
+    stock_df["close_price"] = pd.to_numeric(
+        stock_df["close_price"],
+        errors="coerce"
+    )
+
+    stock_df = stock_df.dropna(
+        subset=["trade_date", "ticker", "close_price"]
+    )
+
+    available_tickers = sorted(
+        stock_df["ticker"].unique().tolist()
+    )
+
+    selected_tickers = st.multiselect(
+        "Select Stocks",
+        available_tickers,
+        default=available_tickers[:3]
+    )
+
+    risk_free_rate = st.slider(
+        "Risk Free Rate (%)",
+        min_value=0.0,
+        max_value=15.0,
+        value=6.0
+    ) / 100
+
+    if len(selected_tickers) < 2:
+        st.warning("Please select at least two stocks.")
+        st.stop()
+
+    filtered = stock_df[
+        stock_df["ticker"].isin(selected_tickers)
+    ]
+
+    pivot = filtered.pivot_table(
+        index="trade_date",
+        columns="ticker",
+        values="close_price"
+    )
+
+    returns = pivot.pct_change().dropna()
+
+    mean_returns = returns.mean()
+    cov_matrix = returns.cov()
+
+    num_assets = len(mean_returns)
+
+    max_weights = optimize_max_sharpe(
+        mean_returns,
+        cov_matrix,
+        num_assets
+    )
+
+    portfolio_return, portfolio_vol, sharpe = portfolio_performance(
+        max_weights,
+        mean_returns,
+        cov_matrix
+    )
+
+    sharpe = (
+        portfolio_return - risk_free_rate
+    ) / portfolio_vol
+
+    col1, col2, col3 = st.columns(3)
+
+    col1.metric(
+        "Expected Return",
+        f"{portfolio_return:.2%}"
+    )
+
+    col2.metric(
+        "Volatility",
+        f"{portfolio_vol:.2%}"
+    )
+
+    col3.metric(
+        "Sharpe Ratio",
+        f"{sharpe:.2f}"
+    )
+
+    st.markdown("### Optimal Portfolio Weights")
+
+    weights_df = pd.DataFrame({
+        "Ticker": returns.columns,
+        "Weight": max_weights
+    })
+
+    weights_df["Weight"] = (
+        weights_df["Weight"] * 100
+    )
+
+    st.dataframe(
+        weights_df.sort_values(
+            "Weight",
+            ascending=False
+        ),
+        use_container_width=True
+    )
+
+    fig_weights = px.pie(
+        weights_df,
+        names="Ticker",
+        values="Weight",
+        title="Portfolio Allocation"
+    )
+
+    st.plotly_chart(
+        fig_weights,
+        use_container_width=True
+    )
+
+    st.markdown("### Correlation Heatmap")
+
+    corr = returns.corr()
+
+    fig_corr = px.imshow(
+        corr,
+        text_auto=True,
+        aspect="auto",
+        title="Stock Correlation Matrix"
+    )
+
+    st.plotly_chart(
+        fig_corr,
+        use_container_width=True
+    )
+
+    st.markdown("### Efficient Frontier")
+
+    frontier = efficient_frontier(
+        mean_returns,
+        cov_matrix,
+        num_portfolios=100
+    )
+
+    frontier_df = pd.DataFrame([
+        {
+            "Return": r,
+            "Volatility": v,
+            "Sharpe": s
+        }
+        for r, v, s, _ in frontier
+    ])
+
+    fig_frontier = px.scatter(
+        frontier_df,
+        x="Volatility",
+        y="Return",
+        color="Sharpe",
+        title="Efficient Frontier"
+    )
+
+    st.plotly_chart(
+        fig_frontier,
+        use_container_width=True
+    )
+
+    st.markdown("### Monte Carlo Simulation")
+
+    simulations = monte_carlo_portfolio(
+        start_value=100000,
+        mean_return=portfolio_return,
+        volatility=portfolio_vol,
+        years=1,
+        simulations=100
+    )
+
+    sim_df = pd.DataFrame(simulations)
+
+    fig_mc = px.line(
+        sim_df,
+        title="Monte Carlo Portfolio Simulation"
+    )
+
+    st.plotly_chart(
+        fig_mc,
+        use_container_width=True
+    )
