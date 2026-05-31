@@ -24,6 +24,8 @@ from src.portfolio_optimization import (
     monte_carlo_portfolio
 )
 
+from src.copilot import generate_financial_copilot_report
+
 logo_path = os.path.join(ROOT_DIR, "assets", "logo.png")
 logo = Image.open(logo_path)
 
@@ -135,13 +137,14 @@ st.markdown(
 
 st.divider()
 
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6, tab7= st.tabs([
     "Overview",
     "Fraud Intelligence",
     "Market Intelligence",
     "Macro Risk",
     "Model Predictions",
-    "Portfolio Optimization"
+    "Portfolio Optimization",
+    "AI Copilot"
 ])
 
 with tab1:
@@ -543,3 +546,29 @@ with tab6:
         fig_mc,
         use_container_width=True
     )
+
+with tab7:
+    st.subheader("AI Financial Copilot v1")
+
+    st.write("This version generates a simple financial summary from the data already stored in SQL.")
+
+    if "copilot_report" not in st.session_state:
+        st.session_state.copilot_report = ""
+
+    if st.button("Generate Financial Report"):
+        try:
+            report = generate_financial_copilot_report()
+            st.session_state.copilot_report = report
+        except Exception as e:
+            st.error(f"Error generating report: {e}")
+
+    if st.session_state.copilot_report:
+        st.markdown("### Generated Financial Report")
+        st.markdown(st.session_state.copilot_report)
+
+        st.download_button(
+            label="Download Report",
+            data=st.session_state.copilot_report,
+            file_name="financial_copilot_report.md",
+            mime="text/markdown"
+        )
